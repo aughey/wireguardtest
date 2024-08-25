@@ -77,25 +77,44 @@ fn main() -> Result<()> {
     let keepalive = their_tun.decapsulate(None, keepalive, &mut dst);
     assert!(matches!(keepalive, noise::TunnResult::Done));
 
-    // Transfer data from my to their
-    let data = b"Hello, world!";
-    let mut dst = vec![0u8; 2048];
-    let res = my_tun.encapsulate(data, &mut dst);
-    assert!(matches!(res, noise::TunnResult::WriteToNetwork(_)));
-    let encrypted_data = if let noise::TunnResult::WriteToNetwork(sent) = res {
-        sent
-    } else {
-        unreachable!();
-    };
-    assert_ne!(data, encrypted_data);
-    assert_ne!(data.len(), encrypted_data.len());
+    for datasize in [1, 2, 4, 8, 16] {
+        // Transfer data from my to their
+        let mut data = Vec::new();
+        for i in 0u8..datasize {
+            data.push(i);
+        }
+        let mut dst = vec![0u8; 2048];
+        let res = my_tun.encapsulate(&data, &mut dst);
+        assert!(matches!(res, noise::TunnResult::WriteToNetwork(_)));
+        let encrypted_data = if let noise::TunnResult::WriteToNetwork(sent) = res {
+            sent
+        } else {
+            unreachable!();
+        };
+        assert_ne!(data, encrypted_data);
+        assert_ne!(data.len(), encrypted_data.len());
 
-    println!("data: len={}: {:?}", data.len(), data);
-    println!(
-        "encrypted_data: len={}: {:?}",
-        encrypted_data.len(),
-        encrypted_data
-    );
+        println!("data: len={}: {:?}", data.len(), data);
+        println!(
+            "encrypted_data: len={}: {:?}",
+            encrypted_data.len(),
+            encrypted_data
+        );
+
+        let packet = noise::Tunn::parse_incoming_packet(&encrypted_data)
+            .map_err(|e| anyhow::anyhow!("Could not parse incoming packet: {e:?}"))?;
+        let packet = if let noise::Packet::PacketData(data) = packet {
+            data
+        } else {
+            anyhow::bail!("Expected data packet");
+        };
+
+        println!("  packet: {packet:?}");
+        println!(
+            "  encrypted_encapsulated_packet len: {}",
+            packet.encrypted_encapsulated_packet.len()
+        );
+    }
 
     Ok(())
 }
